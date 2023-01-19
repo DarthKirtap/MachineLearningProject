@@ -1,11 +1,15 @@
 import sklearn
 from sklearn import svm
+from sklearn import tree
+from sklearn.ensemble import RandomForestClassifier
 import numpy as np
 import pandas as pd
 import datetime
 import nltk
 from nltk.corpus import stopwords
 from nltk.stem.porter import PorterStemmer
+import time
+import matplotlib.pyplot as plt
 
 def remove_stop_words(data, stop_words):
     datax = data.copy()
@@ -64,7 +68,7 @@ def dataset(data):
     freq_tokens = nltk.FreqDist(tokens)
     vocab = freq_tokens.most_common(2500)
 
-    return (data_title, data_text, data_date, data_truth), vocab
+    return (data_title, data_text, data_date, data_truth), vocab, freq_tokens
 
 def transform_bag(data, vocab):
     a = np.zeros((data.size, len(vocab)))
@@ -81,6 +85,15 @@ def split(data):
     size = int(data.shape[0]*0.8)
     return (data[:size], data[size:])
 
+def cal(data, fr, size):
+    datax = split(data[0][:int(fr*size)])
+    datay = split(data[1][:int(fr*size)])
+    start_time = time.time()
+    svcF = svm.SVC(C=1, kernel='rbf')
+    svcF.fit(datax[0], datay[0])
+    return (time.time() - start_time, svcF.score(datax[1], datay[1])*100, fr*size)
+
+start_time = time.time()
 false = pd.read_csv("Fake.csv")
 false["truth"] = 0
 true = pd.read_csv("True.csv")
@@ -88,13 +101,13 @@ true["truth"] = 1
 print("Data loaded")
 news_all = pd.concat([false, true])
 news_shuffled = sklearn.utils.shuffle(news_all)
-news_reindexed = news_shuffled.reset_index(drop = True)
-print("Data merged")
-news_cut = news_reindexed.sample(frac = 0.3)
+news_cut = news_shuffled.sample(frac = 0.3)
 news_cut = news_cut.reset_index(drop = True)
-data, vocab = dataset(news_cut)
-print("Data edited")
+print("Data merged")
+
+data, vocab, freq = dataset(news_cut)
 vocab = np.array(vocab).T[0].tolist()
+print("Data edited")
 
 xx = transform_bag(data[0], vocab)
 xy = transform_bag(data[1], vocab)
@@ -104,46 +117,69 @@ full = pd.DataFrame()
 x = np.concatenate((xx,xy), axis=1)
 y = data[3]
 size = y.size
-full_x = split(x)
-full_y = split(y)
-big_x = split(x[:int(0.2*size)])
-big_y = split(y[:int(0.2*size)])
-medium_x = split(x[int(0.2*size):int(0.25*size)])
-medium_y = split(y[int(0.2*size):int(0.25*size)])
-small_x = split(x[int(0.25*size):int(0.26*size)])
-small_y = split(y[int(0.25*size):int(0.26*size)])
-tiny_x = split(x[int(0.26*size):int(0.262*size)])
-tiny_y = split(y[int(0.26*size):int(0.262*size)])
-print("sampled")
+big_x = split(x[:int(0.1*size)])
+big_y = split(y[:int(0.1*size)])
+print("Sampled")
+print("--- %s seconds ---" % (time.time() - start_time))
 
-svcF = svm.SVC(C=1, kernel='rbf')
-svcF.fit(full_x[0], full_y[0])
-print("Traning accuracy for full SVM: {}".format(svcF.score(full_x[0], full_y[0])))
+a = []
+for i in range(11):
+    a.append(cal((x,y), 0.005 + 0.0009*2**i, size))
 
+a = np.array(a)
+plt.plot(a[:,2], a[:,0])
+plt.plot(a[:,2], a[:,1])
+plt.xlabel("Počet vzorkov")
+plt.ylabel("Cas vypoctov (s)/Presnost klasifikacie (%)")
+plt.xscale('log')
+plt.grid()
+plt.figure()
+plt.plot(a[:,2], a[:,1])
+plt.xlabel("Počet vzorkov")
+plt.ylabel("Presnost klasifikacie")
+plt.xscale('log')
+plt.grid()
+plt.figure()
+plt.plot(a[:,2], a[:,0])
+plt.xlabel("Počet vzorkov")
+plt.ylabel("Cas vypoctov (s)")
+plt.xscale('log')
+plt.grid()
+
+print("------------------")
+start_time = time.time()
 svcB = svm.SVC(C=1, kernel='rbf')
 svcB.fit(big_x[0], big_y[0])
-print("Traning accuracy for big SVM: {}".format(svcB.score(big_x[1], big_y[1])))
+print("Traning accuracy for all SVM: {}".format(svcB.score(big_x[1], big_y[1])))
+print("--- %s seconds ---" % (time.time() - start_time))
 
-svcM = svm.SVC(C=1, kernel='rbf')
-svcM.fit(medium_x[0], medium_y[0])
-print("Traning accuracy for medium SVM: {}".format(svcM.score(medium_x[1], medium_y[1])))
-
-svcS = svm.SVC(C=1, kernel='rbf')
-svcS.fit(small_x[0], small_y[0])
-print("Traning accuracy for small SVM: {}".format(svcS.score(small_x[1], small_y[1])))
-
-svcT = svm.SVC(C=1, kernel='rbf')
-svcT.fit(tiny_x[0], tiny_y[0])
-print("Traning accuracy for tiny SVM: {}".format(svcT.score(tiny_x[1], tiny_y[1])))
-
+start_time = time.time()
 print("No text")
 no_text_x = big_x[0][:,:2500], big_x[1][:,:2500]
 svcT = svm.SVC(C=1, kernel='rbf')
 svcT.fit(no_text_x[0], big_y[0])
 print("Traning accuracy for no text SVM: {}".format(svcT.score(no_text_x[1], big_y[1])))
+print("--- %s seconds ---" % (time.time() - start_time))
 
+start_time = time.time()
 print("No title")
 no_title_x = big_x[0][:,2500:], big_x[1][:,2500:]
 svcS = svm.SVC(C=1, kernel='rbf')
 svcS.fit(no_title_x[0], big_y[0])
 print("Traning accuracy for no title SVM: {}".format(svcS.score(no_title_x[1], big_y[1])))
+print("--- %s seconds ---" % (time.time() - start_time))
+
+rfc = RandomForestClassifier(n_estimators=6, max_depth=6)
+rfc.fit(big_x[0], big_y[0])
+rfc.score(big_x[1], big_y[1])
+
+for i in range(len(rfc.estimators_)):
+    dot_data = tree.export_graphviz(rfc.estimators_[i],
+                                    out_file="tree" + str(i) + ".dot",
+                                    feature_names=vocab*2,
+                                    class_names=['false', 'true'],
+                                    rounded=True, filled=True)
+
+plt.show()
+
+
